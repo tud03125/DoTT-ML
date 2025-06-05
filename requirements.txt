@@ -7,9 +7,8 @@ seaborn
 rpy2
 mygene
 subread
-argparse
 r-base
-r-deseq2
-r-enhancedvolcano
+bioconductor-deseq2
+bioconductor-enhancedvolcano
 r-ggplot2
 r-svglite
