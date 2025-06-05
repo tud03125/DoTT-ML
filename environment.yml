@@ -13,7 +13,6 @@ dependencies:
   - rpy2
   - mygene
   - subread
-  - argparse
   - r-base
   - bioconductor-deseq2
   - bioconductor-enhancedvolcano
