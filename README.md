@@ -223,7 +223,7 @@ python3 main.py \
 ## Example 4: Human Data (hg38) Test with Bootstrapping, GSEA and Supervised ML
 
 ```
-cd /home/tud03125/DoTT_Bioinformatics
+cd /path/to/DoTT_Bioinformatics
 python3 main.py \
   --gtf-file /path/to/pipeline/hg38.knownGene.gtf \
   --bam-files /path/to/human/dataset/4sU-RNA_mock/SRR1523658_Aligned.sortedByCoord.out.bam \
