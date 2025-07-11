@@ -12,3 +12,4 @@ bioconductor-deseq2
 bioconductor-enhancedvolcano
 r-ggplot2
 r-svglite
+r-argparse
