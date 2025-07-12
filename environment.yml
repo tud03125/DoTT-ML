@@ -6,7 +6,6 @@ channels:
 dependencies:
   - python=3.12
   - pandas
-  - scipy
   - numpy
   - pysam
   - matplotlib
