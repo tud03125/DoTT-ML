@@ -13,3 +13,4 @@ bioconductor-enhancedvolcano
 r-ggplot2
 r-svglite
 r-argparse
+scikit-learn
