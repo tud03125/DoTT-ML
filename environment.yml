@@ -6,6 +6,7 @@ channels:
 dependencies:
   - python=3.12
   - pandas
+  - scipy
   - numpy
   - pysam
   - matplotlib
@@ -20,4 +21,5 @@ dependencies:
   - r-svglite
   - r-argparse
   - scikit-learn
+  - imbalanced-learn
   
