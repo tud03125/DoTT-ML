@@ -232,7 +232,7 @@ python3 main.py \
 ```
 cd /path/to/DoTT_Bioinformatics
 python3 main.py \
-  --gtf-file /path/to/pipeline/hg38.knownGene.gtf \
+  --gtf-file /path/to/hg38.knownGene.gtf \
   --bam-files /path/to/human/dataset/4sU-RNA_mock/SRR1523658_Aligned.sortedByCoord.out.bam \
               /path/to/human/dataset/4sU-RNA_mock/SRR1523672_Aligned.sortedByCoord.out.bam \
               /path/to/human/dataset/4sU-RNA_Herpes_simplex_virus_1_strain_17/SRR1523666_Aligned.sortedByCoord.out.bam \
