@@ -81,13 +81,6 @@ Prerequisites for Python packages are provided in requirements.txt/environment.y
 
 # Usage
 
-### BAM file requirements
-
-DoTT was developed on **raw STAR**–generated BAMs. To ensure reproducibility, it is best that your BAM input follow these guidelines:
-- Be produced with STAR’s `--outSAMtype BAM SortedByCoordinate` option
-- Remain unmodified by Picard or GATK (no duplicate marking, no base‐recalibration or NCigar splitting)
-- Be coordinate‐sorted and indexed (e.g. `samtools index SAMPLE.Aligned.sortedByCoord.out.bam`)
-
 ## Required Arguments
 **--gtf-file**
 Path to the GTF annotation file (e.g., for mm39: ```/path/to/mm39_RefSeq.gtf```; for hg38: ```/path/to/hg38.knownGene.gtf```).
@@ -247,5 +240,5 @@ python3 main.py \
   --run_gsea \
   --supervised_ml \
   --experimental_condition HSV-1 \
-  --ground_truth /path/to/HSV-1_ground_truth.csv
+  --ground_truth /path/to/HSV-1_ground_truth_with_log2FC.csv
 ```
