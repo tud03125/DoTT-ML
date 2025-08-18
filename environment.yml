@@ -24,3 +24,6 @@ dependencies:
   - imbalanced-learn
   - r-data.table
   - bioconductor-edger
+  - bioconductor-apeglm
+  - bioconductor-ihw
+  - bioconductor-sva
