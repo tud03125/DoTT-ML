@@ -1,9 +1,19 @@
 #!/usr/bin/env Rscript
-library(argparse)
-library(DESeq2)
-library(EnhancedVolcano)
 
-# Set up argument parsing
+suppressPackageStartupMessages({
+  library(argparse)
+  library(data.table)
+  library(DESeq2)
+  ihw_ok    <- requireNamespace("IHW", quietly = TRUE)
+  apeglm_ok <- requireNamespace("apeglm", quietly = TRUE)
+  ev_ok     <- requireNamespace("EnhancedVolcano", quietly = TRUE)
+  gg_ok     <- requireNamespace("ggplot2", quietly = TRUE)
+  edgeR_ok  <- requireNamespace("edgeR", quietly = TRUE)
+})
+
+# -----------------------------
+# CLI (unchanged)
+# -----------------------------
 parser <- ArgumentParser()
 parser$add_argument("--counts_file", required=TRUE, help="Cleaned counts file")
 parser$add_argument("--output_dir", required=TRUE, help="Output directory")
@@ -13,144 +23,312 @@ parser$add_argument("--n_boot", type="integer", default=100, help="Number of boo
 parser$add_argument("--consensus_threshold", type="double", default=0.5, help="Fraction threshold for consensus calls")
 args <- parser$parse_args()
 
-# Parse the conditions argument into a vector and trim whitespace
-conditions <- unlist(strsplit(args$conditions, ","))
-conditions <- trimws(conditions)
+dir.create(args$output_dir, showWarnings = FALSE, recursive = TRUE)
 
-# Load the count data
-counts <- read.delim(args$counts_file, row.names = 1)
+# -----------------------------
+# Tunables (no new CLI flags)
+# -----------------------------
+alpha <- 0.05
+mode <- "classic"        # default: classic test vs 0; set "thresholded" to test |LFC| > lfc_test_thr
+lfc_test_thr <- 0.5      # used only in thresholded mode
+lfc_call_thr <- 1.0      # final reporting gate (padj<=alpha & |LFC|>=lfc_call_thr)
+use_one_sided_up <- FALSE  # if TRUE and using thresholded mode, test "greater" (up in experimental)
 
-# Check that the number of conditions matches the number of samples
-if(length(conditions) != ncol(counts)){
-  stop("The number of conditions provided does not match the number of samples in the counts file.")
+set.seed(1L)
+prefix <- "3_UTR_extended"
+
+# -----------------------------
+# Load counts (first column is gene id or "Geneid")
+# -----------------------------
+infer_sep <- function(path) {
+  ext <- tolower(tools::file_ext(path))
+  if (ext %in% c("tsv","txt")) "\t" else if (ext == "csv") "," else "\t"
+}
+sep <- infer_sep(args$counts_file)
+tab <- fread(args$counts_file, sep=sep, data.table=FALSE, check.names=FALSE)
+
+if ("Geneid" %in% colnames(tab)) {
+  gene_ids <- tab$Geneid
+  mat <- as.matrix(tab[, setdiff(colnames(tab), "Geneid"), drop=FALSE])
+  rownames(mat) <- gene_ids
+} else {
+  gene_ids <- tab[[1]]
+  mat <- as.matrix(tab[, -1, drop=FALSE])
+  rownames(mat) <- gene_ids
+}
+storage.mode(mat) <- "integer"
+
+# ensure unique sample names
+if (any(duplicated(colnames(mat)))) {
+  colnames(mat) <- make.unique(colnames(mat), sep = ".dup")
 }
 
-# Create the coldata data frame using the provided conditions
-coldata <- data.frame(row.names = colnames(counts), condition = factor(conditions))
+# -----------------------------
+# Design
+# -----------------------------
+conds <- strsplit(args$conditions, ",")[[1]]
+stopifnot(length(conds) == ncol(mat))
+u <- unique(conds); stopifnot(length(u) == 2)
+control_label <- u[1]; experimental_label <- u[2]
 
-# Create DESeq2 dataset and run the analysis
-dds <- DESeqDataSetFromMatrix(countData = counts, colData = coldata, design = ~ condition)
-#dds <- DESeq(dds)
+coldata <- data.frame(sample = colnames(mat),
+                      group  = factor(conds, levels = c(control_label, experimental_label)),
+                      row.names = colnames(mat))
 
-# --- Modified Dispersion Estimation ---
-# Instead of the standard DESeq(dds) call, estimate size factors and then use gene-wise dispersion estimates.
-dds <- estimateSizeFactors(dds)
-dds <- estimateDispersionsGeneEst(dds)
-dispersions(dds) <- mcols(dds)$dispGeneEst
-dds <- nbinomWaldTest(dds)
+# >>> sanitize factor levels up front (maps e.g. "HSV-1" -> "HSV.1")
+levels(coldata$group) <- make.names(levels(coldata$group))
+# re-derive control/experimental AFTER sanitization (order preserved)
+control      <- levels(coldata$group)[1]
+experimental <- levels(coldata$group)[2]
 
-# Retrieve results
-res <- results(dds)
+dds <- DESeqDataSetFromMatrix(countData = mat, colData = coldata, design = ~ group)
 
-# Write DESeq2 results to CSV (without quotation marks)
-results_file <- file.path(args$output_dir, "3_UTR_extended_differential_analysis_results.csv")
-write.csv(as.data.frame(res), file = results_file)
-cat("DESeq2 results saved to", results_file, "\n")
+# -----------------------------
+# Prefilter (prefer edgeR::filterByExpr; else mild row-sum)
+# -----------------------------
+if (edgeR_ok) {
+  y <- edgeR::DGEList(counts = counts(dds), group = coldata$group)
+  keep <- edgeR::filterByExpr(y, group = coldata$group)   # CPM-aware, design-aware
+} else {
+  keep <- rowSums(counts(dds)) >= 5
+}
+dds <- dds[keep, , drop=FALSE]
+n_kept <- nrow(dds); n_total <- nrow(mat)
 
-# Generate MA Plot
-ma_plot_file <- file.path(args$output_dir, "3_UTR_extended_MA_plot.svg")
-#svg(ma_plot_file, width = 8, height = 6)
-svg(ma_plot_file, width = 12, height = 10)
-plotMA(res, main = "MA Plot", ylim = c(-2, 2))
-dev.off()
+# -----------------------------
+# Fit
+# -----------------------------
+dds <- DESeq(dds, quiet = TRUE)
 
-# Generate Volcano Plot
-volcano_plot_file <- file.path(args$output_dir, "3_UTR_extended_Volcano_plot.svg")
-#svg(volcano_plot_file, width = 8, height = 6)
-svg(volcano_plot_file, width = 12, height = 10)
-EnhancedVolcano(res,
-                lab = rownames(res),
-                x = 'log2FoldChange',
-                y = 'pvalue',
-                title = 'Differential 3UTR Expression',
-                pCutoff = 0.05)
-dev.off()
+# -----------------------------
+# Results
+# -----------------------------
+if (mode == "thresholded") {
+  altH <- if (use_one_sided_up) "greater" else "greaterAbs"
+  res <- results(dds,
+                 contrast = c("group", experimental, control),
+                 alpha = alpha,
+                 lfcThreshold = lfc_test_thr,
+                 altHypothesis = altH,
+                 independentFiltering = TRUE,
+                 cooksCutoff = FALSE)
+} else {
+  res <- results(dds,
+                 contrast = c("group", experimental, control),
+                 alpha = alpha,
+                 independentFiltering = TRUE,
+                 cooksCutoff = FALSE)
+}
 
-# Save significant genes based on DESeq2 results:
-# Use absolute log2FoldChange > 1, padj < 0.05
-signif_file <- file.path(args$output_dir, "significant_extended_genes.csv")
-significant_genes <- as.data.frame(res)[!is.na(res$padj) & res$padj < 0.05 & res$log2FoldChange > 1, ]
-write.csv(significant_genes, file = signif_file, quote = FALSE)
-cat("Significant genes saved to", signif_file, "\n")
+# Save BH padj before optional IHW
+padj_BH <- res$padj
+nsig_bh_at_call <- sum(!is.na(padj_BH) & padj_BH <= alpha & abs(res$log2FoldChange) >= lfc_call_thr)
 
-# Normalize counts and save the normalized counts to a CSV file for unsupervised ML
-dds <- estimateSizeFactors(dds)
-normalized_counts <- counts(dds, normalized = TRUE)
-norm_counts_file <- file.path(args$output_dir, "normalized_counts.csv")
-write.csv(normalized_counts, file = norm_counts_file, quote = FALSE)
-cat("Normalized counts saved to", norm_counts_file, "\n")
-
-# Optional Bootstrapping step
-if (args$bootstrap) {
-  cat("Performing bootstrapping with", args$n_boot, "iterations...\n")
-  gene_counts <- list()
-  
-  # Identify indices for each condition
-  cond_levels <- levels(coldata$condition)
-  if(length(cond_levels) != 2){
-    stop("Bootstrapping currently supports exactly 2 conditions.")
+# Adaptive FDR via IHW with guard (fallback to BH if it slashes yield too much)
+used_ihw <- FALSE
+if (ihw_ok) {
+  library(IHW)
+  df <- as.data.frame(res); df$baseMean[is.na(df$baseMean)] <- 0
+  fit <- ihw(pvalue ~ baseMean, data = df, alpha = alpha)
+  padj_IHW <- adj_pvalues(fit)
+  nsig_ihw_at_call <- sum(!is.na(padj_IHW) & padj_IHW <= alpha & abs(res$log2FoldChange) >= lfc_call_thr)
+  if (nsig_ihw_at_call >= 0.8 * nsig_bh_at_call) {
+    res$padj <- padj_IHW; used_ihw <- TRUE
   }
-  control_idx <- which(coldata$condition == cond_levels[1])
-  experimental_idx <- which(coldata$condition == cond_levels[2])
-  
-  for (i in 1:args$n_boot) {
-    boot_control <- sample(control_idx, length(control_idx), replace=TRUE)
-    boot_experimental <- sample(experimental_idx, length(experimental_idx), replace=TRUE)
-    boot_idx <- c(boot_control, boot_experimental)
-    
-    boot_counts <- counts[, boot_idx, drop=FALSE]
-    boot_coldata <- coldata[boot_idx, , drop=FALSE]
-    
-    # Run DESeq2 on bootstrapped data
-    dds_boot <- DESeqDataSetFromMatrix(countData=boot_counts,
-                                       colData=boot_coldata,
-                                       design=~ condition)
-    #dds_boot <- DESeq(dds_boot)
-    dds_boot <- estimateSizeFactors(dds_boot)
-    dds_boot <- estimateDispersionsGeneEst(dds_boot)
-    dispersions(dds_boot) <- mcols(dds_boot)$dispGeneEst
-    dds_boot <- nbinomWaldTest(dds_boot)
-    res_boot <- results(dds_boot)
-    res_boot_df <- as.data.frame(res_boot)
-    
-    # Identify significant genes in bootstrap iteration
-    sig_boot <- rownames(res_boot_df)[which(!is.na(res_boot_df$padj) & 
-                                              res_boot_df$padj < 0.05 & 
-                                              abs(res_boot_df$log2FoldChange) > 1)]
-    for (gene in sig_boot) {
-      gene_counts[[gene]] <- ifelse(is.null(gene_counts[[gene]]), 1, gene_counts[[gene]] + 1)
+}
+
+# -----------------------------
+# Optional LFC shrinkage for plots/ranking (apeglm requires coef)
+# -----------------------------
+shrunk <- NULL
+if (apeglm_ok) {
+  library(apeglm)
+  rn <- resultsNames(dds)  # inspect to see the sanitized coef names
+  coef_name <- paste0("group_", experimental, "_vs_", control)
+  if (coef_name %in% rn) {
+    shrunk <- lfcShrink(dds, coef = coef_name, type = "apeglm")
+  } else {
+    # ultra-rare fallback: try "normal" shrinkage with contrast *only* for plotting
+    # (calls downstream still based on 'res')
+    shrunk <- tryCatch(
+      lfcShrink(dds, contrast = c("group", experimental, control), type = "normal"),
+      error = function(e) NULL
+    )
+  }
+}
+
+# -----------------------------
+# Normalized counts & group means
+# -----------------------------
+norm_counts <- counts(dds, normalized = TRUE)
+fwrite(data.table(gene = rownames(norm_counts), as.data.frame(norm_counts)),
+       file.path(args$output_dir, "normalized_counts.csv"), sep = ",")
+
+idx_ctrl <- which(coldata$group == control)
+idx_exp  <- which(coldata$group == experimental)
+mean_ctrl <- rowMeans(norm_counts[, idx_ctrl, drop = FALSE])
+mean_exp  <- rowMeans(norm_counts[, idx_exp,  drop = FALSE])
+
+# -----------------------------
+# Write legacy result files
+# -----------------------------
+res_df <- as.data.frame(res)
+res_df$gene <- rownames(res_df)
+res_df$mean_control <- mean_ctrl[res_df$gene]
+res_df$mean_experimental <- mean_exp[res_df$gene]
+res_out <- res_df[, c("gene","baseMean","log2FoldChange","lfcSE","stat","pvalue","padj",
+                      "mean_control","mean_experimental")]
+fwrite(res_out,
+       file.path(args$output_dir, paste0(prefix, "_differential_analysis_results.csv")),
+       sep = ",")
+
+sig_abs <- subset(res_out, !is.na(padj) & padj <= alpha & abs(log2FoldChange) >= lfc_call_thr)
+fwrite(sig_abs, file.path(args$output_dir, "significant_extended_genes.csv"), sep = ",")
+fwrite(sig_abs, file.path(args$output_dir, "absolute_significant_extended_genes_with_individual_means.csv"), sep = ",")
+
+# -----------------------------
+# Plots
+# -----------------------------
+if (gg_ok) {
+  library(ggplot2)
+  p_ma <- ggplot(res_df, aes(x = log10(baseMean + 1), y = log2FoldChange)) +
+    geom_point(alpha = 0.5, size = 0.7) +
+    geom_hline(yintercept = c(-lfc_call_thr, lfc_call_thr), linetype = "dashed") +
+    labs(title = sprintf("%s MA plot (%s vs %s)", prefix, experimental, control),
+         x = "log10(baseMean + 1)", y = "log2 fold change") +
+    theme_bw()
+  ggsave(file.path(args$output_dir, paste0(prefix, "_MA_plot.svg")), p_ma,
+         width = 6, height = 4, dpi = 300, device = "svg")
+} else {
+  svg(file.path(args$output_dir, paste0(prefix, "_MA_plot.svg")), width=6, height=4)
+  with(res_df, {
+    plot(log10(baseMean+1), log2FoldChange, pch=20, cex=0.6,
+         xlab="log10(baseMean+1)", ylab="log2 fold change",
+         main=sprintf("%s MA plot (%s vs %s)", prefix, experimental, control))
+    abline(h=c(-lfc_call_thr, lfc_call_thr), lty=2)
+  })
+  dev.off()
+}
+
+if (ev_ok) {
+  library(EnhancedVolcano)
+  volcano_df <- if (!is.null(shrunk)) as.data.frame(shrunk) else as.data.frame(res)
+  volcano_df$gene <- rownames(volcano_df)
+  svg(file.path(args$output_dir, paste0(prefix, "_Volcano_plot.svg")), width=7, height=5)
+  EnhancedVolcano(volcano_df,
+                  lab = volcano_df$gene,
+                  x = 'log2FoldChange', y = 'pvalue',
+                  pCutoff = alpha, FCcutoff = lfc_call_thr,
+                  title = sprintf("%s Volcano (%s vs %s)", prefix, experimental, control),
+                  labSize = 3)
+  dev.off()
+} else if (gg_ok) {
+  library(ggplot2)
+  volcano_df <- if (!is.null(shrunk)) as.data.frame(shrunk) else as.data.frame(res)
+  volcano_df$neglog10p <- -log10(volcano_df$pvalue)
+  p_vol <- ggplot(volcano_df, aes(x = log2FoldChange, y = neglog10p)) +
+    geom_point(alpha = 0.6, size = 0.7) +
+    geom_vline(xintercept = c(-lfc_call_thr, lfc_call_thr), linetype = "dashed") +
+    geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
+    labs(title = sprintf("%s Volcano (%s vs %s)", prefix, experimental, control),
+         x = "log2 fold change", y = "-log10(pvalue)") +
+    theme_bw()
+  ggsave(file.path(args$output_dir, paste0(prefix, "_Volcano_plot.svg")), p_vol,
+         width = 7, height = 5, dpi = 300, device = "svg")
+}
+
+# -----------------------------
+# Optional bootstrap consensus
+# -----------------------------
+if (isTRUE(args$bootstrap)) {
+  message(sprintf("Bootstrapping %d iterations for consensus >= %.2f",
+                  args$n_boot, args$consensus_threshold))
+  B <- args$n_boot
+  genes <- rownames(mat)
+  call_mat <- matrix(0L, nrow = nrow(mat), ncol = B,
+                     dimnames = list(genes, paste0("b", seq_len(B))))
+  idx_ctrl <- which(coldata$group == control)
+  idx_exp  <- which(coldata$group == experimental)
+
+  for (b in seq_len(B)) {
+    rs_ctrl <- sample(idx_ctrl, length(idx_ctrl), replace = TRUE)
+    rs_exp  <- sample(idx_exp,  length(idx_exp),  replace = TRUE)
+
+    m_b <- cbind(mat[, rs_ctrl, drop = FALSE], mat[, rs_exp, drop = FALSE])
+
+    drawn_names <- c(colnames(mat)[rs_ctrl], colnames(mat)[rs_exp])
+    colnames(m_b) <- make.unique(drawn_names, sep = ".rep")
+
+    cd_b <- data.frame(
+      group = factor(c(rep(control, length(rs_ctrl)),
+                       rep(experimental, length(rs_exp))),
+                     levels = c(control, experimental)),
+      row.names = colnames(m_b),
+      stringsAsFactors = FALSE
+    )
+
+    dds_b <- DESeqDataSetFromMatrix(countData = m_b, colData = cd_b, design = ~ group)
+
+    if (edgeR_ok) {
+      yb <- edgeR::DGEList(counts = counts(dds_b), group = cd_b$group)
+      keep_b <- edgeR::filterByExpr(yb, group = cd_b$group)
+    } else {
+      keep_b <- rowSums(counts(dds_b)) >= 5
     }
+    dds_b <- dds_b[keep_b, , drop = FALSE]
+    dds_b <- DESeq(dds_b, quiet = TRUE)
+
+    if (mode == "thresholded") {
+      altH_b <- if (use_one_sided_up) "greater" else "greaterAbs"
+      res_b <- results(dds_b, contrast = c("group", experimental, control),
+                       alpha = alpha, lfcThreshold = lfc_test_thr,
+                       altHypothesis = altH_b, independentFiltering = TRUE,
+                       cooksCutoff = FALSE)
+    } else {
+      res_b <- results(dds_b, contrast = c("group", experimental, control),
+                       alpha = alpha, independentFiltering = TRUE,
+                       cooksCutoff = FALSE)
+    }
+
+    padj_bh_b <- res_b$padj
+    if (ihw_ok) {
+      dfb <- as.data.frame(res_b); dfb$baseMean[is.na(dfb$baseMean)] <- 0
+      fitb <- IHW::ihw(pvalue ~ baseMean, data = dfb, alpha = alpha)
+      padj_ihw_b <- IHW::adj_pvalues(fitb)
+      nsig_bh_b  <- sum(!is.na(padj_bh_b)  & padj_bh_b  <= alpha & abs(res_b$log2FoldChange) >= lfc_call_thr)
+      nsig_ihw_b <- sum(!is.na(padj_ihw_b) & padj_ihw_b <= alpha & abs(res_b$log2FoldChange) >= lfc_call_thr)
+      res_b$padj <- if (nsig_ihw_b >= 0.8 * nsig_bh_b) padj_ihw_b else padj_bh_b
+    }
+
+    sig_b <- (!is.na(res_b$padj)) & res_b$padj <= alpha & abs(res_b$log2FoldChange) >= lfc_call_thr
+    call_mat[rownames(res_b), b] <- as.integer(sig_b)
   }
-  # Determine consensus genes (present in at least consensus_threshold * n_boot iterations)
-  consensus_genes <- names(gene_counts)[sapply(gene_counts, function(x) x >= args$consensus_threshold * args$n_boot)]
-  consensus_file <- file.path(args$output_dir, "consensus_deseq2_genes_bootstrap.txt")
-  write(consensus_genes, file=consensus_file)
-  cat("Consensus DE genes from bootstrapping saved to", consensus_file, "\n")
+
+  freq <- rowMeans(call_mat)
+  consensus <- as.integer(freq >= args$consensus_threshold)
+
+  data.table(gene = rownames(call_mat),
+             consensus_fraction = freq,
+             consensus_call = consensus) |>
+    fwrite(file.path(args$output_dir, "bootstrap_consensus.tsv"), sep = "\t")
+
+  writeLines(rownames(call_mat)[consensus == 1L],
+             con = file.path(args$output_dir, "consensus_deseq2_genes_bootstrap.txt"))
 }
 
-# --- Begin additional filtering for DOTT-like genes ---
-# Combine DESeq2 results with computed normalized mean counts
-conds <- levels(coldata$condition)
-if(length(conds) != 2) {
-  stop("This script expects exactly 2 unique conditions for filtering DOTT-like genes.")
-}
-ctrl <- conds[1]
-exp <- conds[2]
-
-ctrl_samples <- colnames(normalized_counts)[coldata$condition == ctrl]
-exp_samples <- colnames(normalized_counts)[coldata$condition == exp]
-
-ctrl_mean <- rowMeans(normalized_counts[, ctrl_samples], na.rm = TRUE)
-exp_mean <- rowMeans(normalized_counts[, exp_samples], na.rm = TRUE)
-
-results_with_counts <- cbind(as.data.frame(res), ctrl_mean, exp_mean)
-
-# Define predicted DOTT-like genes based solely on DESeq2 significance and fold change:
-dott_genes <- results_with_counts[
-  !is.na(results_with_counts$padj) & results_with_counts$padj < 0.05 &
-  abs(results_with_counts$log2FoldChange) > 1, ]
-  
-# Save the DOTT-like genes with individual means to a CSV file
-# (Updated file name to reflect absolute values)
-dott_file <- file.path(args$output_dir, "absolute_significant_extended_genes_with_individual_means.csv")
-write.csv(dott_genes, file = dott_file, quote = FALSE)
+# -----------------------------
+# Run summary (sanity checks)
+# -----------------------------
+nsig_final <- sum(!is.na(res$padj) & res$padj <= alpha & abs(res$log2FoldChange) >= lfc_call_thr)
+summary_lines <- c(
+  sprintf("mode=%s  lfc_test_thr=%.3f  call_|LFC|>=%.3f  one_sided_up=%s",
+          mode, lfc_test_thr, lfc_call_thr, use_one_sided_up),
+  sprintf("kept_genes=%d / %d (prefilter=%s)", n_kept, n_total,
+          if (edgeR_ok) "edgeR::filterByExpr" else "rowSums>=5"),
+  sprintf("independentFiltering=TRUE  cooksCutoff=FALSE"),
+  sprintf("IHW_used=%s  nsig_at_call (BH)=%d  nsig_at_call (final)=%d",
+          used_ihw, nsig_bh_at_call, nsig_final)
+)
+writeLines(summary_lines, con = file.path(args$output_dir, "deseq2_run_summary.txt"))
+writeLines(capture.output(sessionInfo()), con = file.path(args$output_dir, "sessionInfo.txt"))
+message("DESeq2 module finished.")
