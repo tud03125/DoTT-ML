@@ -22,4 +22,4 @@ dependencies:
   - r-argparse
   - scikit-learn
   - imbalanced-learn
-  
+  - r-data.table
