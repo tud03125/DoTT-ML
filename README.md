@@ -141,6 +141,7 @@ The label for the experimental condition. This value is used by ML modules to se
 
 ```
 cd /path/to/DoTT_Bioinformatics
+DOTT_DESEQ2_PROFILE=classic \
 python3 main.py \
   --gtf-file /path/to/mm39_RefSeq.gtf \
   --bam-files /path/to/simulated_reads/STAR_sample_01_Aligned.sortedByCoord.out.bam \
@@ -170,6 +171,7 @@ python3 main.py \
 
 ```
 cd /path/to/DoTT_Bioinformatics
+DOTT_DESEQ2_PROFILE=robust \
 python3 main.py \
   --gtf-file /path/to/hg38.knownGene.gtf \
   --bam-files /path/to/human/dataset/Total_RNA_mock/SRR1523653_Aligned.sortedByCoord.out.bam \
@@ -196,6 +198,7 @@ python3 main.py \
 
 ```
 cd /path/to/DoTT_Bioinformatics
+DOTT_DESEQ2_PROFILE=robust \
 python3 main.py \
   --gtf-file /path/to/hg38.knownGene.gtf \
   --bam-files /path/to/human/dataset/Total_RNA_mock/SRR1523653_Aligned.sortedByCoord.out.bam \
@@ -224,6 +227,7 @@ python3 main.py \
 
 ```
 cd /path/to/DoTT_Bioinformatics
+DOTT_DESEQ2_PROFILE=robust \
 python3 main.py \
   --gtf-file /path/to/hg38.knownGene.gtf \
   --bam-files /path/to/human/dataset/4sU-RNA_mock/SRR1523658_Aligned.sortedByCoord.out.bam \
