@@ -10,7 +10,6 @@ from merging_genes import merge_gene_regions
 from coordinate_extraction import extract_coordinates
 from utils import parse_conditions
 
-
 def main():
     parser = argparse.ArgumentParser(description="DoTT Bioinformatics Pipeline")
     parser.add_argument("--gtf-file", required=True)
@@ -33,6 +32,8 @@ def main():
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Parse conditions as a list aligned to BAM files order
     conds = parse_conditions(args.bam_files, args.conditions)
 
     saf_file = generate_saf(
@@ -48,21 +49,28 @@ def main():
 
     counts_file = run_featurecounts(saf_file, args.extension, args.bam_files, args.output_dir)
     cleaned_counts = filter_counts_for_deseq2(counts_file, args.output_dir)
-
-    r_cmd = ["Rscript", "dott_DESeq2.R", "--counts_file", cleaned_counts,
-              "--output_dir", args.output_dir, "--conditions", args.conditions]
+    
+    # Run DESeq2 (optionally bootstrap consensus)
+    r_cmd = ["Rscript", "dott_DESeq2.R",
+             "--counts_file", cleaned_counts,
+             "--output_dir", args.output_dir,
+             "--conditions", args.conditions]
     if args.bootstrap:
-        r_cmd += ["--bootstrap", "TRUE", "--n_boot", str(args.n_boot),
+        r_cmd += ["--bootstrap", "TRUE",
+                  "--n_boot", str(args.n_boot),
                   "--consensus_threshold", str(args.consensus_threshold)]
     subprocess.run(r_cmd, check=True)
-
+    
+    # Expected outputs from DESeq2 stage
     deseq2_results_file = os.path.join(args.output_dir, "3_UTR_extended_differential_analysis_results.csv")
     absolute_sig_file   = os.path.join(args.output_dir, "absolute_significant_extended_genes_with_individual_means.csv")
     norm_counts_file    = os.path.join(args.output_dir, "normalized_counts.csv")
-
+    
+    # Downstream DoTT annotation products
     merge_gene_regions(absolute_sig_file, saf_file, os.path.join(args.output_dir, "merged_DoTT_annotation.bed"))
     extract_coordinates(absolute_sig_file, saf_file, args.output_dir)
-
+    
+    # Optional GSEA
     if args.run_gsea:
         subprocess.run([
             "Rscript", "dott_gsea_preranked_list.R",
@@ -70,15 +78,18 @@ def main():
             "--output_dir", args.output_dir
         ], check=True)
         print("GSEA pre-ranked list created.")
-
+    
+    # Optional UNSUPERVISED ML
     if args.unsupervised_ml:
         if not args.experimental_condition:
             raise ValueError("For unsupervised ML, provide --experimental_condition.")
         from Unsupervised_ML import run_unsupervised_ml
+        # Pass the parsed conditions list so the module can compute means from normalized_counts
         run_unsupervised_ml(absolute_sig_file, norm_counts_file,
                             args.output_dir, args.experimental_condition,
                             conditions_list=conds)
-
+    
+    # Optional SUPERVISED ML
     if args.supervised_ml:
         if not args.experimental_condition or not args.ground_truth:
             raise ValueError("For supervised ML, provide --experimental_condition and --ground_truth.")
