@@ -21,3 +21,5 @@ bioconductor-edger
 bioconductor-apeglm
 bioconductor-ihw
 bioconductor-sva
+r-readr
+r-dplyr
