@@ -28,3 +28,4 @@ dependencies:
   - bioconductor-ihw
   - bioconductor-sva
   - r-readr
+  - r-dplyr
