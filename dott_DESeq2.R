@@ -214,59 +214,126 @@ fwrite(sig_abs, file.path(args$output_dir, "absolute_significant_extended_genes_
 # -----------------------------
 # Plots (SVG): MA and Volcano
 # -----------------------------
+
+# 1) classify once, reuse in both plots
+thr_p  <- alpha
+thr_fc <- lfc_thr
+
+res_df$direction <- "NS"
+sel <- !is.na(res_df$padj) & (res_df$padj < thr_p) & (abs(res_df$log2FoldChange) > thr_fc)
+res_df$direction[ sel & res_df$log2FoldChange >  thr_fc] <- paste0("Up in ", experimental)
+res_df$direction[ sel & res_df$log2FoldChange < -thr_fc] <- paste0("Up in ", control)
+res_df$direction <- factor(
+  res_df$direction,
+  levels = c("NS", paste0("Up in ", experimental), paste0("Up in ", control))
+)
+
+# -----------------
+# MA plot
+# -----------------
 if (gg_ok) {
   library(ggplot2)
-  p_ma <- ggplot(res_df, aes(x = log10(baseMean + 1), y = log2FoldChange)) +
-    geom_point(alpha = 0.5, size = 0.7) +
-    geom_hline(yintercept = c(-lfc_thr, lfc_thr), linetype = "dashed") +
-    labs(title = sprintf("%s MA plot (%s vs %s)", prefix, experimental, control),
-         x = "log10(baseMean + 1)", y = "log2 fold change") +
-    theme_bw()
+  p_ma <- ggplot(res_df, aes(x = log10(baseMean + 1), y = log2FoldChange, color = direction)) +
+    geom_point(alpha = 0.55, size = 0.8, na.rm = TRUE) +
+    geom_hline(yintercept = c(-thr_fc, thr_fc), linetype = "dashed") +
+    labs(
+      title = sprintf("%s MA plot (%s vs %s)", prefix, experimental, control),
+      subtitle = "Significant: padj < 0.05 & |LFC| > 1",
+      x = "log10(baseMean + 1)",
+      y = sprintf("log2 fold change (%s / %s)", experimental, control),
+      color = NULL
+    ) +
+    theme_bw() + theme(legend.position = "top")
   ggsave(file.path(args$output_dir, paste0(prefix, "_MA_plot.svg")), p_ma,
-         width = 6, height = 4, dpi = 300, device = "svg")
+         width = 7, height = 5, units = "in")
+  ggsave(file.path(args$output_dir, paste0(prefix, "_MA_plot.png")), p_ma,
+         width = 7, height = 5, units = "in", dpi = 300)
 } else {
-  svg(file.path(args$output_dir, paste0(prefix, "_MA_plot.svg")), width=6, height=4)
+  # base-R fallback with colors/legend
+  cols <- setNames(c("grey60","firebrick","steelblue"),
+                   c("NS", paste0("Up in ", experimental), paste0("Up in ", control)))
+  svg(file.path(args$output_dir, paste0(prefix, "_MA_plot.svg")), width=7, height=5)
   with(res_df, {
-    plot(log10(baseMean+1), log2FoldChange, pch=20, cex=0.6,
-         xlab="log10(baseMean+1)", ylab="log2 fold change",
+    colv <- cols[direction]
+    plot(log10(baseMean + 1), log2FoldChange, pch=20, cex=0.6, col=colv,
+         xlab="log10(baseMean+1)",
+         ylab=sprintf("log2 fold change (%s / %s)", experimental, control),
          main=sprintf("%s MA plot (%s vs %s)", prefix, experimental, control))
-    abline(h=c(-lfc_thr, lfc_thr), lty=2)
+    abline(h=c(-thr_fc, thr_fc), lty=2)
+    legend("topright", legend=names(cols), col=cols, pch=16, cex=0.8, bty="n")
   })
   dev.off()
 }
 
+# -----------------
+# Volcano plot
+# -----------------
+# Prefer padj on y (better matches significance gating) and SAVE the ggplot object explicitly.
+# Use shrunk LFCs if available (for visualization only).
+vol_df <- if (!is.null(shrunk)) as.data.frame(shrunk) else res_df
+vol_df$gene <- rownames(vol_df)
+
 if (ev_ok) {
+  # EnhancedVolcano returns a ggplot object — use ggsave to avoid blank SVGs.
   library(EnhancedVolcano)
-  volcano_df <- if (!is.null(shrunk)) as.data.frame(shrunk) else as.data.frame(res)
-  volcano_df$gene <- rownames(volcano_df)
-  svg(file.path(args$output_dir, paste0(prefix, "_Volcano_plot.svg")), width=7, height=5)
-  EnhancedVolcano(volcano_df,
-                  lab = volcano_df$gene,
-                  x = 'log2FoldChange', y = 'pvalue',
-                  pCutoff = alpha, FCcutoff = lfc_thr,
-                  title = sprintf("%s Volcano (%s vs %s)", prefix, experimental, control),
-                  labSize = 3)
-  dev.off()
+  vol <- EnhancedVolcano(
+    vol_df,
+    lab = vol_df$gene,
+    x   = "log2FoldChange",
+    y   = "padj",
+    pCutoff  = thr_p,
+    FCcutoff = thr_fc,
+    title    = sprintf("%s Volcano (%s vs %s)", prefix, experimental, control),
+    subtitle = "Significant: padj < 0.05 & |LFC| > 1",
+    cutoffLineType = "dashed",
+    labSize  = 2.6,
+    drawConnectors = FALSE
+  )
+  if (gg_ok) {
+    ggsave(file.path(args$output_dir, paste0(prefix, "_Volcano_plot.svg")), vol,
+           width = 7, height = 5, units = "in")
+    ggsave(file.path(args$output_dir, paste0(prefix, "_Volcano_plot.png")), vol,
+           width = 7, height = 5, units = "in", dpi = 300)
+  } else {
+    svg(file.path(args$output_dir, paste0(prefix, "_Volcano_plot.svg")), width=7, height=5)
+    print(vol)  # critical so the device isn't blank
+    dev.off()
+  }
 } else if (gg_ok) {
+  # pure ggplot volcano with padj, colored like MA
   library(ggplot2)
-  volcano_df <- if (!is.null(shrunk)) as.data.frame(shrunk) else as.data.frame(res)
-  volcano_df$neglog10p <- -log10(volcano_df$pvalue)
-  p_vol <- ggplot(volcano_df, aes(x = log2FoldChange, y = neglog10p)) +
-    geom_point(alpha = 0.6, size = 0.7) +
-    geom_vline(xintercept = c(-lfc_thr, lfc_thr), linetype = "dashed") +
-    geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
-    labs(title = sprintf("%s Volcano (%s vs %s)", prefix, experimental, control),
-         x = "log2 fold change", y = "-log10(pvalue)") +
-    theme_bw()
+  # guard against padj==0 -> Inf on -log10
+  vol_df$padj[!is.na(vol_df$padj) & vol_df$padj == 0] <- .Machine$double.xmin
+  vol_df$neglog10padj <- -log10(vol_df$padj)
+  p_vol <- ggplot(vol_df, aes(x = log2FoldChange, y = neglog10padj, color = res_df$direction)) +
+    geom_point(alpha = 0.55, size = 0.8, na.rm = TRUE) +
+    geom_vline(xintercept = c(-thr_fc, thr_fc), linetype = "dashed") +
+    geom_hline(yintercept = -log10(thr_p), linetype = "dashed") +
+    labs(
+      title = sprintf("%s Volcano (%s vs %s)", prefix, experimental, control),
+      x = sprintf("log2 fold change (%s / %s)", experimental, control),
+      y = "-log10(padj)", color = NULL
+    ) +
+    theme_bw() + theme(legend.position = "top")
   ggsave(file.path(args$output_dir, paste0(prefix, "_Volcano_plot.svg")), p_vol,
-         width = 7, height = 5, dpi = 300, device = "svg")
+         width = 7, height = 5, units = "in")
+  ggsave(file.path(args$output_dir, paste0(prefix, "_Volcano_plot.png")), p_vol,
+         width = 7, height = 5, units = "in", dpi = 300)
 } else {
+  # base-R fallback using padj and colored points
+  cols <- setNames(c("grey60","firebrick","steelblue"),
+                   c("NS", paste0("Up in ", experimental), paste0("Up in ", control)))
+  ypadj <- res_df$padj
+  ypadj[!is.na(ypadj) & ypadj == 0] <- .Machine$double.xmin
   svg(file.path(args$output_dir, paste0(prefix, "_Volcano_plot.svg")), width=7, height=5)
-  with(as.data.frame(res), {
-    plot(log2FoldChange, -log10(pvalue), pch=20, cex=0.6,
-         xlab="log2 fold change", ylab="-log10(pvalue)",
+  with(res_df, {
+    colv <- cols[direction]
+    plot(log2FoldChange, -log10(ypadj), pch=20, cex=0.6, col=colv,
+         xlab=sprintf("log2 fold change (%s / %s)", experimental, control),
+         ylab="-log10(padj)",
          main=sprintf("%s Volcano (%s vs %s)", prefix, experimental, control))
-    abline(v=c(-lfc_thr, lfc_thr), lty=2); abline(h=-log10(alpha), lty=2)
+    abline(v=c(-thr_fc, thr_fc), lty=2); abline(h=-log10(thr_p), lty=2)
+    legend("topright", legend=names(cols), col=cols, pch=16, cex=0.8, bty="n")
   })
   dev.off()
 }
