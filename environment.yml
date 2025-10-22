@@ -29,7 +29,6 @@ dependencies:
   - bioconductor-sva
   - r-readr
   - r-dplyr
-  - bioconductor-limma
   - r-tidyverse
   - r-ggbeeswarm
   - r-ggrastr
