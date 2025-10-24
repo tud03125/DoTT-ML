@@ -31,4 +31,5 @@ dependencies:
   - r-dplyr
   - r-tidyverse
   - r-ggbeeswarm
+  - r-stringr
   - r-ggrastr
