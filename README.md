@@ -68,12 +68,12 @@ Prerequisites for Python packages are provided in requirements.txt/environment.y
    To install these packages, you can run the following in R:
 
    ```
-  # For CRAN packages
+  **For CRAN packages**
 required_cran_packages <- c("argparse", "ggplot2", "svglite", "data.table", "readr", "dplyr", "tidyverse", "ggbeeswarm", "stringr", "ggrastr")
 new_cran_packages <- required_cran_packages[!(required_cran_packages %in% installed.packages()[, "Package"])]
 if(length(new_cran_packages)) install.packages(new_cran_packages, repos="https://cran.rstudio.com")
 
-# For Bioconductor packages
+**For Bioconductor packages**
 if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 required_bioc_packages <- c("DESeq2", "EnhancedVolcano", "edgeR", "apeglm", "IHW", "sva")
