@@ -43,8 +43,8 @@ Prerequisites for Python packages are provided in requirements.txt/environment.y
 ## Installation
 1. **Clone the Repository:**
    ```bash
-   gh repo clone tud03125/DoTT_Bioinformatics
-   cd DoTT_Bioinformatics
+   gh repo clone tud03125/DoTT-ML
+   cd DoTT-ML
    
 2. **Pre-requisites (using pip):**
    ```
