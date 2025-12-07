@@ -1,4 +1,4 @@
-# DoTT_Bioinformatics
+# DoTT-ML
 A bioinformatics pipeline for analyzing disruption of transcriptional termination (DoTT) using Python and R, designed for both mouse and human datasets.
 
 ## Overview
