@@ -145,7 +145,7 @@ The label for the experimental condition. This value is used by ML modules to se
 ## Example 1: Simulated Mouse (mm39) Test with Bootstrapping, GSEA, and Supervised ML
 
 ```
-cd /path/to/DoTT_Bioinformatics
+cd /path/to/DoTT-ML
 DOTT_DESEQ2_PROFILE=classic \
 python3 main.py \
   --gtf-file /path/to/mm39_RefSeq.gtf \
@@ -175,7 +175,7 @@ python3 main.py \
 ## Example 2: Human Data (hg38) Test with Bootstrapping and GSEA
 
 ```
-cd /path/to/DoTT_Bioinformatics
+cd /path/to/DoTT-ML
 DOTT_DESEQ2_PROFILE=robust \
 python3 main.py \
   --gtf-file /path/to/hg38.knownGene.gtf \
@@ -202,7 +202,7 @@ python3 main.py \
 ## Example 3: Human Data (hg38) Test with Bootstrapping, GSEA and Unsupervised ML
 
 ```
-cd /path/to/DoTT_Bioinformatics
+cd /path/to/DoTT-ML
 DOTT_DESEQ2_PROFILE=robust \
 python3 main.py \
   --gtf-file /path/to/hg38.knownGene.gtf \
@@ -231,7 +231,7 @@ python3 main.py \
 ## Example 4: Human Data (hg38) Test with Bootstrapping, GSEA and Supervised ML
 
 ```
-cd /path/to/DoTT_Bioinformatics
+cd /path/to/DoTT-ML
 DOTT_DESEQ2_PROFILE=robust \
 python3 main.py \
   --gtf-file /path/to/hg38.knownGene.gtf \
