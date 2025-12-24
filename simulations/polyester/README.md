@@ -3,13 +3,13 @@
 
 **Prerequisites**
 
--R + Bioconductor packages used in the scripts (polyester, rtracklayer, GenomicRanges, Biostrings, Rsamtools).
+- R + Bioconductor packages used in the scripts (polyester, rtracklayer, GenomicRanges, Biostrings, Rsamtools).
 
--Reference files placed locally in pipeline/:
+- Reference files placed locally in pipeline/:
 
-  -pipeline/mm39.fa
+  - pipeline/mm39.fa
   
-  -pipeline/mm39_RefSeq.gtf
+  - pipeline/mm39_RefSeq.gtf
 
 **Download references (example: UCSC)**
 (Reference directories shown here are maintained by UCSC)
