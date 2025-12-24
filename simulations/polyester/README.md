@@ -4,8 +4,11 @@
 **Prerequisites**
 
 -R + Bioconductor packages used in the scripts (polyester, rtracklayer, GenomicRanges, Biostrings, Rsamtools).
+
 -Reference files placed locally in pipeline/:
+
   -pipeline/mm39.fa
+  
   -pipeline/mm39_RefSeq.gtf
 
 **Download references (example: UCSC)**
@@ -27,6 +30,7 @@ mv mm39.ncbiRefSeq.gtf mm39_RefSeq.gtf
 ```
 
 **Run**
+
 From repo root:
 
 ```
